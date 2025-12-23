@@ -2,6 +2,9 @@ from celery import shared_task
 from .models import Loan
 from django.core.mail import send_mail
 from django.conf import settings
+from django.utils import timezone
+from datetime import datetime
+from django.db.models import Q
 
 @shared_task
 def send_loan_notification(loan_id):
@@ -16,5 +19,23 @@ def send_loan_notification(loan_id):
             recipient_list=[member_email],
             fail_silently=False,
         )
+    except Loan.DoesNotExist:
+        pass
+
+# use celery beat data model periodic task in admin to run this task daily.
+@shared_task
+def check_overdue_loans():
+    try:
+        loans = Loan.objects.filter(is_returned=False,due_date__lt=datetime.now())
+        for loan in loans:
+            member_email = loan.member.user.email
+            book_title = loan.book.title
+            send_mail(
+                subject='Book Loaned is not past due date',
+                message=f'Hello {loan.member.user.username},\n\nYou have loaned "{book_title}".\nIt is past due date.Please return it as soon as possible.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[member_email],
+                fail_silently=False,
+            )
     except Loan.DoesNotExist:
         pass

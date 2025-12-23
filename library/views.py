@@ -4,14 +4,16 @@ from .models import Author, Book, Member, Loan
 from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
+from datetime import timedelta
 from .tasks import send_loan_notification
+
 
 class AuthorViewSet(viewsets.ModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 
 class BookViewSet(viewsets.ModelViewSet):
-    queryset = Book.objects.all()
+    queryset = Book.objects.prefetch_related('author').all()
     serializer_class = BookSerializer
 
     @action(detail=True, methods=['post'])
@@ -52,3 +54,17 @@ class MemberViewSet(viewsets.ModelViewSet):
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, loan_id=None):
+        #loan_id = request.params.get("loan_id")
+        additional_days = request.data.get('additional_days')
+        if additional_days < 0:
+            return Response({'status': 'Invalid input'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            loan = Loan.objects.get(loan_id=loan_id, is_returned=False, return_date_gt=timezone.now())
+        except Loan.DoesNotExist:
+            return Response({'error': 'Active loan does not exist or loan is already pass due date.'}, status=status.HTTP_400_BAD_REQUEST)
+        loan.return_date = timezone.now().date() + timedelta(days=additional_days)
+        loan.save()
+        return Response({'status': 'Added additional days successfully'}, status=status.HTTP_200_OK)
